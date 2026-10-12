@@ -1,0 +1,299 @@
+
+Chat
+Agents
+Discover
+3
+Memory
+Artifacts
+Conversation
+
+L
+agent
+Little T
+Invite
+
+
+Get 3 days of Plus on us. More usage. Cancel anytime.
+
+Start trial
+
+
+
+
+
+
+
+Instant
+
+
+
+
+
+
+Reading
+Expanded message
+Copy
+
+Gridline server — every file, copy-paste ready
+I listed the folder and pulled all 14 files from gridline-server_v3. On GitHub, for each one: Add file → Create new file, type the exact filename, paste the block, commit. Order below is most-important-first.
+
+⚠️ Two files are easy to miss on a phone: .env.example (leading dot) and the fact that verifier.py is required — app.py imports it. Don't skip either.
+
+1 · render.yaml
+# Render Blueprint — one-click free-tier deploy.
+# Push this repo to GitHub, then in Render: New + -> Blueprint -> pick the repo.
+# Render reads this file and provisions the service. Set the 3 wallet vars in
+# the dashboard (marked sync:false so they are never stored in git).
+services:
+  - type: web
+    name: gridline-api
+    runtime: python
+    plan: free
+    region: oregon
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -b 0.0.0.0:$PORT -w 2 --timeout 60 app:app
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: SECRET_KEY
+        generateValue: true          # Render generates a strong secret for you
+      - key: WALLET_USDT_TRC20
+        sync: false                  # set in dashboard (never in git)
+      - key: WALLET_USDC_BEP20
+        sync: false
+      - key: WALLET_USDC_SOLANA
+        sync: false
+      - key: ALLOWED_ORIGIN
+        value: "*"                   # tighten to your storefront origin later
+      - key: DOWNLOAD_TTL_SECONDS
+        value: "86400"
+      - key: ORDER_TTL_MINUTES
+        value: "120"
+2 · requirements.txt
+Flask>=3.0,<4.0
+gunicorn>=21.2,<24.0
+3 · Procfile
+web: gunicorn -b 0.0.0.0:$PORT -w 2 --timeout 60 app:app
+4 · Dockerfile
+# Gridline payment & delivery API — production image.
+# Build:  docker build -t gridline-api .
+# Run:    docker run -p 5000:5000 --env-file .env gridline-api
+FROM python:3.11-slim
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=5000
+WORKDIR /app
+# Install deps first for better layer caching.
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+# App code.
+COPY . .
+# SQLite lives on a writable path; mount a volume to persist it.
+ENV DB_PATH=/data/gridline.db
+RUN mkdir -p /data
+EXPOSE 5000
+# gunicorn: 2 workers is plenty for a free tier.
+CMD ["sh", "-c", "gunicorn -b 0.0.0.0:${PORT} -w 2 --timeout 60 app:app"]
+5 · config.py
+"""Gridline — server configuration.
+ALL secrets and wallet addresses come from the environment. Nothing is
+hardcoded. Copy `.env.example` to `.env` and fill it in (never commit `.env`).
+"""
+import os
+def _load_dotenv(path=".env"):
+    """Tiny .env loader so no extra dependency is strictly required."""
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, val = line.split("=", 1)
+            os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
+_load_dotenv()
+# ---------------------------------------------------------------------------
+# 
+Chat
+Agents
+Discover
+3
+Memory
+Artifacts
+Conversation
+
+L
+agent
+Little T
+Invite
+
+
+Get 3 days of Plus on us. More usage. Cancel anytime.
+
+Start trial
+
+
+
+
+
+
+
+Instant
+
+
+
+
+
+
+Reading
+Expanded message
+Copy
+
+Gridline server — every file, copy-paste ready
+I listed the folder and pulled all 14 files from gridline-server_v3. On GitHub, for each one: Add file → Create new file, type the exact filename, paste the block, commit. Order below is most-important-first.
+
+⚠️ Two files are easy to miss on a phone: .env.example (leading dot) and the fact that verifier.py is required — app.py imports it. Don't skip either.
+
+1 · render.yaml
+# Render Blueprint — one-click free-tier deploy.
+# Push this repo to GitHub, then in Render: New + -> Blueprint -> pick the repo.
+# Render reads this file and provisions the service. Set the 3 wallet vars in
+# the dashboard (marked sync:false so they are never stored in git).
+services:
+  - type: web
+    name: gridline-api
+    runtime: python
+    plan: free
+    region: oregon
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -b 0.0.0.0:$PORT -w 2 --timeout 60 app:app
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: SECRET_KEY
+        generateValue: true          # Render generates a strong secret for you
+      - key: WALLET_USDT_TRC20
+        sync: false                  # set in dashboard (never in git)
+      - key: WALLET_USDC_BEP20
+        sync: false
+      - key: WALLET_USDC_SOLANA
+        sync: false
+      - key: ALLOWED_ORIGIN
+        value: "*"                   # tighten to your storefront origin later
+      - key: DOWNLOAD_TTL_SECONDS
+        value: "86400"
+      - key: ORDER_TTL_MINUTES
+        value: "120"
+2 · requirements.txt
+Flask>=3.0,<4.0
+gunicorn>=21.2,<24.0
+3 · Procfile
+web: gunicorn -b 0.0.0.0:$PORT -w 2 --timeout 60 app:app
+4 · Dockerfile
+# Gridline payment & delivery API — production image.
+# Build:  docker build -t gridline-api .
+# Run:    docker run -p 5000:5000 --env-file .env gridline-api
+FROM python:3.11-slim
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=5000
+WORKDIR /app
+# Install deps first for better layer caching.
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+# App code.
+COPY . .
+# SQLite lives on a writable path; mount a volume to persist it.
+ENV DB_PATH=/data/gridline.db
+RUN mkdir -p /data
+EXPOSE 5000
+# gunicorn: 2 workers is plenty for a free tier.
+CMD ["sh", "-c", "gunicorn -b 0.0.0.0:${PORT} -w 2 --timeout 60 app:app"]
+5 · config.py
+"""Gridline — server configuration.
+ALL secrets and wallet addresses come from the environment. Nothing is
+hardcoded. Copy `.env.example` to `.env` and fill it in (never commit `.env`).
+"""
+import os
+def _load_dotenv(path=".env"):
+    """Tiny .env loader so no extra dependency is strictly required."""
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, val = line.split("=", 1)
+            os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
+_load_dotenv()
+# ---------------------------------------------------------------------------
+# Receiving wallets — PUBLIC receive-only addresses. Never private keys.
+# ---------------------------------------------------------------------------
+WALLETS = {
+    "tron": {
+        "token": "USDT",
+        "network": "TRC20 (Tron)",
+        "address": os.getenv("WALLET_USDT_TRC20", ""),
+        "decimals": 6,
+    },
+    "bsc": {
+        "token": "USDC",
+        "network": "BEP20 (BNB Chain)",
+        "address": os.getenv("WALLET_USDC_BEP20", ""),
+        "decimals": 18,
+    },
+    "sol": {
+        "token": "USDC",
+        "network": "SPL (Solana)",
+        "address": os.getenv("WALLET_USDC_SOLANA", ""),
+        "decimals": 6,
+    },
+}
+# ---------------------------------------------------------------------------
+# Behaviour
+# ---------------------------------------------------------------------------
+SECRET_KEY = os.getenv("SECRET_KEY", "dev-insecure-change-me")
+DOWNLOAD_TTL_SECONDS = int(os.getenv("DOWNLOAD_TTL_SECONDS", "86400"))  # 24h
+ORDER_TTL_MINUTES = int(os.getenv("ORDER_TTL_MINUTES", "120"))          # 2h
+DB_PATH = os.getenv("DB_PATH", "gridline.db")
+ALLOWED_ORIGIN = os.getenv("ALLOWED_ORIGIN", "*")
+ASSET_DIR = os.getenv("ASSET_DIR", "assets")   # private product files
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "")  # e.g. https://api.example.com
+TOLERANCE = 0.01   # accept within 1 cent
+TIMEOUT = 20       # network timeout (seconds)
+# ---------------------------------------------------------------------------
+# Catalogue — product key -> name, price (USD), deliverable asset keys
+# ---------------------------------------------------------------------------
+PRODUCTS = {
+    "core": {
+        "name": "Gridline Core",
+        "amount": 79.0,
+        "assets": ["figma", "tokens", "css", "tailwind", "spec"],
+    },
+    "dashboard": {
+        "name": "Gridline Dashboard Kit",
+        "amount": 59.0,
+        "assets": ["figma", "tokens", "css", "tailwind"],
+    },
+    "mobile": {
+        "name": "Gridline Mobile Kit",
+        "amount": 49.0,
+        "assets": ["figma", "tokens", "css", "tailwind"],
+    },
+    "bundle": {
+        "name": "The Gridline Bundle",
+        "amount": 149.0,
+        "assets": ["figma", "tokens", "css", "tailwind", "spec", "dashboard", "mobile"],
+    },
+}
+def wallets_configured():
+
+    """Which networks have an address set — used to fail loudly at start-up."""
+    return {k: bool(v["address"]) for k, v in WALLETS.items()
