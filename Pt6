@@ -1,0 +1,179 @@
+"""Gridline — on-chain payment verification (read-only).
+Verifies incoming stablecoin payments against free public RPC / explorer
+APIs. This module NEVER signs, sends, or moves funds — it only READS chain
+state to confirm a transfer arrived.
+Adapted from the original `verify_payment.py` toolkit so that wallet
+addresses come from the environment (see config.py) rather than being
+hardcoded.
+Routes
+------
+  tron  USDT TRC20 (Tron)       -> TronGrid public API
+  bsc   USDC BEP20 (BNB Chain)  -> public BSC JSON-RPC (keyless)
+  sol   USDC SPL (Solana)       -> Solana public JSON-RPC
+"""
+import json
+import urllib.request
+from datetime import datetime, timezone
+from config import WALLETS, TOLERANCE, TIMEOUT
+# ---------------------------------------------------------------------------
+# HTTP helpers
+# ---------------------------------------------------------------------------
+def _get_json(url, headers=None):
+    req = urllib.request.Request(
+        url, headers=headers or {"User-Agent": "gridline-verify/2.0"})
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+def _post_json(url, payload, headers=None):
+    data = json.dumps(payload).encode("utf-8")
+    hdrs = {"Content-Type": "application/json", "User-Agent": "gridline-verify/2.0"}
+    if headers:
+        hdrs.update(headers)
+    req = urllib.request.Request(url, data=data, headers=hdrs, method="POST")
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+# ---------------------------------------------------------------------------
+# Tron / USDT TRC20
+# ---------------------------------------------------------------------------
+def verify_tron(amount, since_minutes):
+    w = WALLETS["tron"]
+    if not w["address"]:
+        return {"paid": False, "network": w["network"], "error": "address_not_configured"}
+    url = ("https://api.trongrid.io/v1/accounts/%s/transactions/trc20"
+           "?limit=50&only_confirmed=true" % w["address"])
+    try:
+        data = _get_json(url)
+    except Exception as exc:
+        return {"paid": False, "network": w["network"], "error": "trongrid_unreachable: %s" % exc}
+    cutoff_ms = (datetime.now(timezone.utc).timestamp() - since_minutes * 60) * 1000
+    for tx in data.get("data", []):
+        if tx.get("to") != w["address"]:
+            continue
+        symbol = tx.get("token_info", {}).get("symbol")
+        if symbol not in (None, "USDT"):
+            continue
+        dec = tx.get("token_info", {}).get("decimals", w["decimals"])
+        try:
+            value = int(tx.get("value", 0)) / (10 ** dec)
+        except (TypeError, ValueError):
+            continue
+        ts = tx.get("block_timestamp", 0)
+        if ts and ts < cutoff_ms:
+            continue
+        if value + TOLERANCE >= amount:
+            return {
+                "paid": True, "network": w["network"], "token": w["token"],
+                "amount_received": round(value, 6), "amount_expected": amount,
+                "txid": tx.get("transaction_id"), "timestamp": ts,
+            }
+    return {"paid": False, "network": w["network"], "token": w["token"],
+            "amount_expected": amount, "note": "no matching confirmed transfer found"}
+# ---------------------------------------------------------------------------
+# BNB Chain / USDC BEP20  (keyless public RPC)
+# ---------------------------------------------------------------------------
+USDC_BEP20_CONTRACT = "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d"
+TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+BSC_RPCS = [
+    "https://bsc-dataseed1.defibit.io/",
+    "https://rpc.ankr.com/bsc",
+]
+def _bsc_rpc(method, params):
+    last_err = None
+    for rpc in BSC_RPCS:
+        try:
+            return _post_json(rpc, {"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+        except Exception as exc:  # try next endpoint
+            last_err = exc
+    raise RuntimeError("all BSC RPCs failed: %s" % last_err)
+def verify_bsc(amount, since_minutes):
+    w = WALLETS["bsc"]
+    if not w["address"]:
+        return {"paid": False, "network": w["network"], "error": "address_not_configured"}
+    try:
+        latest = int(_bsc_rpc("eth_blockNumber", [])["result"], 16)
+    except Exception as exc:
+        return {"paid": False, "network": w["network"], "error": "bsc_rpc_unreachable: %s" % exc}
+    # BSC ~3s blocks; cap the window to stay within public-RPC log limits.
+    span = min(int(since_minutes * 60 / 3) + 50, 4500)
+    from_block = max(latest - span, 0)
+    padded_to = "0x" + w["address"].lower().replace("0x", "").rjust(64, "0")
+    try:
+        logs = _bsc_rpc("eth_getLogs", [{
+            "fromBlock": hex(from_block),
+            "toBlock": "latest",
+            "address": USDC_BEP20_CONTRACT,
+            "topics": [TRANSFER_TOPIC, None, padded_to],
+        }])
+    except Exception as exc:
+        return {"paid": False, "network": w["network"], "error": "bsc_getlogs_failed: %s" % exc}
+    for log in logs.get("result") or []:
+        try:
+            value = int(log["data"], 16) / (10 ** w["decimals"])
+        except (KeyError, ValueError):
+            continue
+        if value + TOLERANCE >= amount:
+            return {
+                "paid": True, "network": w["network"], "token": w["token"],
+                "amount_received": round(value, 6), "amount_expected": amount,
+                "txid": log.get("transactionHash"),
+                "block": int(log.get("blockNumber", "0x0"), 16),
+            }
+    return {"paid": False, "network": w["network"], "token": w["token"],
+            "amount_expected": amount, "note": "no matching transfer in recent blocks"}
+# ---------------------------------------------------------------------------
+# Solana / USDC SPL
+# ---------------------------------------------------------------------------
+SOL_RPC = "https://api.mainnet-beta.solana.com"
+def verify_sol(amount, since_minutes):
+    w = WALLETS["sol"]
+    if not w["address"]:
+        return {"paid": False, "network": w["network"], "error": "solana_rpc_unreachable: %s" % exc}
+    rows = sigs.get("result") or []
+    if not rows:
+        return {"paid": False, "network": w["network"], "token": w["token"],
+                "amount_expected": amount, "note": "no recent activity on address"}
+    cutoff = datetime.now(timezone.utc).timestamp() - since_minutes * 60
+    for row in rows:
+        sig = row.get("signature")
+        block_time = row.get("blockTime")
+        if not sig:
+            continue
+        if block_time and block_time < cutoff:
+            continue
+        try:
+            tx = _post_json(SOL_RPC, {
+                "jsonrpc": "2.0", "id": 1, "method": "getTransaction",
+                "params": [sig, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}],
+            })
+        except Exception:
+            continue
+        result = tx.get("result") or {}
+        meta = result.get("meta") or {}
+        if meta.get("err"):
+            continue
+        for bal in (meta.get("postTokenBalances") or []):
+            if bal.get("owner") != w["address"]:
+                continue
+            ui = bal.get("uiTokenAmount", {})
+            try:
+                value = float(ui.get("uiAmountString") or ui.get("uiAmount") or 0)
+            except (TypeError, ValueError):
+                continue
+            if value + TOLERANCE >= amount:
+                return {
+                    "paid": True, "network": w["network"], "token": w["token"],
+                    "amount_received": round(value, 6), "amount_expected": amount,
+                    "txid": sig, "timestamp": block_time,
+                }
+    return {"paid": False, "network": w["network"], "token": w["token"],
+            "amount_expected": amount,
+            "note": "activity found but no single transfer >= order amount"}
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+_VERIFIERS = {"tron": verify_tron, "bsc": verify_bsc, "sol": verify_sol}
+def verify_payment(network, amount, since_minutes=120):
+    """Return a structured verification result for the given network."""
+    fn = _VERIFIERS.get((network or "").lower())
+    if not fn:
+        return {"paid": False, "error": "unknown network: %s" % network}
+    return fn(amount, since_minutes)
